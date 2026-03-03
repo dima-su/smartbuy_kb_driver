@@ -1,0 +1,176 @@
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/fs.h>
+#include <linux/init.h>
+#include <linux/input-event-codes.h>
+#include <linux/input.h>
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/usb.h>
+#include <linux/usb/input.h>
+
+#define DEVICE_NAME "usb_kb_name"
+#define CLASS_NAME "usb_kb_dev_class"
+#define VENDOR_ID 0x1a2c
+#define KEYBOARD_ID 0x407e
+
+// Keyboard ID tables to identify which keyboard to use
+static struct usb_device_id universal_kb_id_table[] = {
+    {USB_INTERFACE_INFO(USB_CLASS_HID, 1,
+                        1)}, // 1 Boot subclass, 1 Keyboard Protocol
+    {}};
+
+static struct usb_device_id smartbuy_id_table[] = {
+    {USB_DEVICE(VENDOR_ID, KEYBOARD_ID)}, {}};
+
+MODULE_DEVICE_TABLE(usb, smartbuy_id_table);
+
+struct keyboard_info {
+  struct urb *urb;
+  struct input_dev *input_dev;
+  char *buffer;
+  struct usb_device *usb_dev;
+};
+
+// Function to call when kb calls back to the driever
+static void KbCallback(struct urb *urb) { return; }
+
+// Init function to setup connection with KB
+static int kb_probe_init(struct usb_interface *usb_intf,
+                         const struct usb_device_id *dev_id) {
+
+  printk(KERN_INFO "SuperKBDrive: Connecting keyboard. . .");
+
+  struct usb_device *usb_kb = interface_to_usbdev(usb_intf);
+  struct keyboard_info *kbd;
+  struct usb_host_interface *alt = usb_intf->cur_altsetting;
+  struct usb_endpoint_descriptor *kb_endpoint;
+
+  int i = 0;
+  for (i = 0; i < alt->desc.bNumEndpoints; i++) {
+    kb_endpoint = &alt->endpoint[i].desc;
+
+    if (usb_endpoint_is_int_in(kb_endpoint))
+      break;
+  }
+
+  if (i == alt->desc.bNumEndpoints) {
+    dev_err(&usb_intf->dev, "No interrupt IN endpoint");
+    return -ENODEV;
+  }
+
+  kbd = kzalloc(sizeof(*kbd), GFP_KERNEL);
+
+  if (!kbd) {
+    return -ENOMEM;
+  }
+  kbd->usb_dev = usb_get_dev(usb_kb);
+
+  kbd->input_dev = input_allocate_device();
+
+  if (!kbd->input_dev) {
+    kfree(kbd);
+    return -ENOMEM;
+  }
+
+  kbd->input_dev->name = "Cool kb driver";
+  kbd->input_dev->phys = "usb-0000:00:14.0-2/input0";
+  kbd->input_dev->id.bustype = BUS_USB;
+  kbd->input_dev->id.vendor = le16_to_cpu(usb_kb->descriptor.idVendor);
+  kbd->input_dev->id.product = le16_to_cpu(usb_kb->descriptor.idProduct);
+
+  set_bit(EV_KEY, kbd->input_dev->evbit);
+  set_bit(EV_REP, kbd->input_dev->evbit);
+
+  for (i = 0; i < 256; i++)
+    set_bit(i, kbd->input_dev->keybit);
+
+  struct urb *urb_req;
+  urb_req = usb_alloc_urb(0, GFP_KERNEL);
+  if (!urb_req) {
+    return ~ENOMEM;
+  }
+
+  unsigned int kb_pipe_id =
+      usb_rcvintpipe(usb_kb, kb_endpoint->bEndpointAddress);
+
+  // Initializing a buffer
+  size_t kb_buffer_size = usb_endpoint_maxp(kb_endpoint);
+  char *kb_buffer = kmalloc(kb_buffer_size, GFP_KERNEL);
+
+  if (!kb_buffer) {
+    usb_free_urb(urb_req);
+    return ENOMEM;
+  }
+
+  // Initialing our URB for interrupt-type keyboard raw bytes transers
+  usb_fill_int_urb(urb_req, usb_kb, kb_pipe_id, kb_buffer, kb_buffer_size,
+                   KbCallback, NULL, kb_endpoint->bInterval);
+
+  if (!kbd->usb_dev) {
+    printk(
+        KERN_ERR
+        "Test keyboard driver error: Couldn't allocate mem for input device");
+    return -ENOMEM;
+  }
+
+  int error_code = input_register_device(kbd->input_dev);
+
+  printk(KERN_INFO "SuperKBDrive: keybord connected!");
+
+  return 0;
+}
+
+// Disconnecting keyboard
+static void kbd_disconnect(struct usb_interface *usb_interface) {
+  struct keyboard_info *kbd_info = usb_get_intfdata(usb_interface);
+
+  if (!kbd_info)
+    return;
+  printk(KERN_INFO "SuperKBDrive: Cleaning up the mess. . .");
+  usb_set_intfdata(usb_interface, NULL);
+
+  usb_kill_urb(kbd_info->urb); // Sync stopping URB
+
+  usb_free_urb(kbd_info->urb); // Releasing URB
+
+  kfree(kbd_info->buffer); // Deleting buffer
+
+  input_unregister_device(kbd_info->input_dev); // Unbinding from input devices
+
+  kfree(kbd_info);
+  printk(KERN_INFO "SuperKBDrive: Done cleaning.");
+  return;
+}
+
+// setting up driver to be registered
+struct usb_driver kb_driver_info = {
+    .name = "super_keyboard_driver",
+    .probe = kb_probe_init,
+    .disconnect = kbd_disconnect,
+    .id_table = smartbuy_id_table,
+};
+
+// Function to run when module is loaded in kernel
+static int __init kb_driver_init(void) {
+  usb_register(&kb_driver_info);
+  printk(KERN_INFO "Dima keyboard driver is loaded and initialized. . .\n");
+  return 0;
+}
+
+// Function to run when module is unloaded from kernel
+static void __exit kb_driver_exit(void) {
+  usb_deregister(&kb_driver_info);
+
+  printk(KERN_INFO "Dima keyboard driver exitted and unloaded\n");
+
+  return;
+}
+
+// Setting init and exit funcs for driver
+module_init(kb_driver_init);
+module_exit(kb_driver_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Dmitry Legend Sukharev");
+MODULE_DESCRIPTION("Test keyboard driver bc interesting");
