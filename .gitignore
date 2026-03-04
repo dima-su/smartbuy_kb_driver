@@ -13,4 +13,6 @@ ldp.o.cmd
 .Module.symvers.cmd
 .ldp.ko.cmd
 .ldp.mod.o.cmd 
+.ldp.o.cmd
+..module-common.o.cmd
 .module-common.o
