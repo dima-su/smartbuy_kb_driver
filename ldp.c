@@ -9,13 +9,16 @@
 #include <linux/usb.h>
 #include <linux/usb/input.h>
 
+#define DRIVER_AUTHOR "Dmitry Sukharev <arezxbusiness@gmail.com>"
+#define DRIVER_DESC "Universal open source USB HID keyboard driver"
+
 #define DEVICE_NAME "usb_kb_name"
 #define CLASS_NAME "usb_kb_dev_class"
 #define VENDOR_ID 0x1a2c
 #define KEYBOARD_ID 0x407e
 
 // Keyboard ID tables to identify which keyboard to use
-static struct usb_device_id universal_kb_id_table[] = {
+static struct usb_device_id universal_id_table[] = {
     {USB_INTERFACE_INFO(USB_CLASS_HID, 1,
                         1)}, // 1 Boot subclass, 1 Keyboard Protocol
     {}};
@@ -23,7 +26,7 @@ static struct usb_device_id universal_kb_id_table[] = {
 static struct usb_device_id smartbuy_id_table[] = {
     {USB_DEVICE(VENDOR_ID, KEYBOARD_ID)}, {}};
 
-MODULE_DEVICE_TABLE(usb, smartbuy_id_table);
+MODULE_DEVICE_TABLE(usb, universal_id_table);
 
 struct keyboard_info {
   struct urb *urb;
@@ -33,7 +36,23 @@ struct keyboard_info {
 };
 
 // Function to call when kb calls back to the driever
-static void KbCallback(struct urb *urb) { return; }
+static void KbCallback(struct urb *urb) {
+
+  struct keyboard_info *kbd = urb->context;
+
+  if (urb->status) {
+    if (urb->status == -ENOENT || urb->status == -ECONNRESET)
+      return;
+    printk(KERN_ERR "URB error %d\n", urb->status);
+  }
+
+  print_hex_dump(KERN_DEBUG, "kbd data: ", DUMP_PREFIX_OFFSET, 16, 1,
+                 urb->transfer_buffer, urb->actual_length, true);
+
+  usb_submit_urb(urb, GFP_ATOMIC);
+
+  return;
+}
 
 // Init function to setup connection with KB
 static int kb_probe_init(struct usb_interface *usb_intf,
@@ -85,9 +104,10 @@ static int kb_probe_init(struct usb_interface *usb_intf,
   for (i = 0; i < 256; i++)
     set_bit(i, kbd->input_dev->keybit);
 
-  struct urb *urb_req;
-  urb_req = usb_alloc_urb(0, GFP_KERNEL);
-  if (!urb_req) {
+  int error_code = input_register_device(kbd->input_dev);
+
+  kbd->urb = usb_alloc_urb(0, GFP_KERNEL);
+  if (!kbd->urb) {
     return ~ENOMEM;
   }
 
@@ -95,17 +115,19 @@ static int kb_probe_init(struct usb_interface *usb_intf,
       usb_rcvintpipe(usb_kb, kb_endpoint->bEndpointAddress);
 
   // Initializing a buffer
-  size_t kb_buffer_size = usb_endpoint_maxp(kb_endpoint);
-  char *kb_buffer = kmalloc(kb_buffer_size, GFP_KERNEL);
+  kbd->buffer = kmalloc(kb_endpoint->wMaxPacketSize, GFP_KERNEL);
 
-  if (!kb_buffer) {
-    usb_free_urb(urb_req);
+  if (!kbd->buffer) {
+    input_unregister_device(kbd->input_dev);
+    usb_free_urb(kbd->urb);
+    kfree(kbd);
     return ENOMEM;
   }
 
   // Initialing our URB for interrupt-type keyboard raw bytes transers
-  usb_fill_int_urb(urb_req, usb_kb, kb_pipe_id, kb_buffer, kb_buffer_size,
-                   KbCallback, NULL, kb_endpoint->bInterval);
+  usb_fill_int_urb(kbd->urb, usb_kb, kb_pipe_id, kbd->buffer,
+                   kb_endpoint->wMaxPacketSize, KbCallback, kbd,
+                   kb_endpoint->bInterval);
 
   if (!kbd->usb_dev) {
     printk(
@@ -114,7 +136,17 @@ static int kb_probe_init(struct usb_interface *usb_intf,
     return -ENOMEM;
   }
 
-  int error_code = input_register_device(kbd->input_dev);
+  int err_code = usb_submit_urb(kbd->urb, GFP_KERNEL);
+  if (err_code) {
+    usb_free_urb(kbd->urb);
+    kfree(kbd->buffer);
+    input_unregister_device(kbd->input_dev);
+    kfree(kbd);
+    printk(KERN_ERR "Couldn't submit urb. . .");
+    return err_code;
+  }
+
+  usb_set_intfdata(usb_intf, kbd);
 
   printk(KERN_INFO "SuperKBDrive: keybord connected!");
 
@@ -172,5 +204,5 @@ module_init(kb_driver_init);
 module_exit(kb_driver_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Dmitry Legend Sukharev");
-MODULE_DESCRIPTION("Test keyboard driver bc interesting");
+MODULE_AUTHOR(DRIVER_AUTHOR);
+MODULE_DESCRIPTION(DRIVER_DESC);

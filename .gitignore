@@ -1,0 +1,16 @@
+build/
+ldp.ko
+ldp.mod
+ldp.mod.c
+ldp.mod.o
+ldp.o
+modules.order
+Module.symvers
+.ldp.mod.cmd
+.module-common.o.cmd 
+ldp.o.cmd
+.modules.order.cmd
+.Module.symvers.cmd
+.ldp.ko.cmd
+.ldp.mod.o.cmd 
+.module-common.o
