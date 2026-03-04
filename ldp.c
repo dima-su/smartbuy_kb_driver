@@ -226,4 +226,4 @@ module_exit(kb_driver_exit);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);
-MODULE_DEPEND("linux-headers base-devel");
+MODULE_SOFTDEP("linux-headers base-devel");
