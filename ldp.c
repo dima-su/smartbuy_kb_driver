@@ -59,19 +59,30 @@ struct keyboard_info {
 static void KbCallback(struct urb *urb) {
 
   struct keyboard_info *kbd = urb->context;
+  u8 *keys_buffer = urb->transfer_buffer;
 
   if (urb->status) {
-    if (urb->status == -ENOENT || urb->status == -ECONNRESET)
-      return;
-    printk(KERN_ERR "URB error %d\n", urb->status);
+    goto resubmit;
   }
 
   print_hex_dump(KERN_DEBUG, "kbd data: ", DUMP_PREFIX_OFFSET, 16, 1,
                  urb->transfer_buffer, urb->actual_length, true);
 
-  usb_submit_urb(urb, GFP_ATOMIC);
+  for (short i = 0; i < 6; i++) {
+    u8 code = keys_buffer[2 + i];
+    if (!code)
+      continue;
+    else {
+      unsigned int key = usb_kbd_keycode[code];
+      if (key)
+        input_report_key(kbd->input_dev, key, 1);
+    }
+  }
 
-  return;
+  input_sync(kbd->input_dev);
+
+resubmit:
+  usb_submit_urb(urb, GFP_ATOMIC);
 }
 
 // Init function to setup connection with KB
@@ -206,7 +217,7 @@ struct usb_driver kb_driver_info = {
 // Function to run when module is loaded in kernel
 static int __init kb_driver_init(void) {
   usb_register(&kb_driver_info);
-  printk(KERN_INFO "Dima keyboard driver is loaded and initialized. . .\n");
+  printk(KERN_INFO "Super keyboard driver is loaded and initialized. . .\n");
   return 0;
 }
 
@@ -214,7 +225,7 @@ static int __init kb_driver_init(void) {
 static void __exit kb_driver_exit(void) {
   usb_deregister(&kb_driver_info);
 
-  printk(KERN_INFO "Dima keyboard driver exitted and unloaded\n");
+  printk(KERN_INFO "Super keyboard driver exitted and unloaded\n");
 
   return;
 }
