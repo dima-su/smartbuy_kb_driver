@@ -17,6 +17,12 @@
 #define VENDOR_ID 0x1a2c
 #define KEYBOARD_ID 0x407e
 
+static struct last_pressed_strafe {
+  char active;
+  char last;
+  unsigned char phys_ad;
+};
+
 // Keyboard ID tables to identify which keyboard to use
 static struct usb_device_id universal_id_table[] = {
     {USB_INTERFACE_INFO(USB_CLASS_HID, 1,
