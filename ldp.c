@@ -23,11 +23,11 @@ static struct last_pressed_strafe {
   unsigned char phys_ad;
 };
 
-// Keyboard ID tables to identify which keyboard to use
+DECLARE_BITMAP(old_keys, KEY_CNT);
+DECLARE_BITMAP(new_keys, KEY_CNT);
+
 static struct usb_device_id universal_id_table[] = {
-    {USB_INTERFACE_INFO(USB_CLASS_HID, 1,
-                        1)}, // 1 Boot subclass, 1 Keyboard Protocol
-    {}};
+    {USB_INTERFACE_INFO(USB_CLASS_HID, 1, 1)}, {}};
 
 static struct usb_device_id smartbuy_id_table[] = {
     {USB_DEVICE(VENDOR_ID, KEYBOARD_ID)}, {}};
@@ -64,6 +64,7 @@ struct keyboard_info {
 // Function to call when kb calls back to the driever
 static void KbCallback(struct urb *urb) {
 
+  bitmap_zero(new_keys, KEY_CNT);
   struct keyboard_info *kbd = urb->context;
   u8 *keys_buffer = urb->transfer_buffer;
 
@@ -74,16 +75,30 @@ static void KbCallback(struct urb *urb) {
   print_hex_dump(KERN_DEBUG, "kbd data: ", DUMP_PREFIX_OFFSET, 16, 1,
                  urb->transfer_buffer, urb->actual_length, true);
 
+  unsigned int key;
   for (short i = 0; i < 6; i++) {
     u8 code = keys_buffer[2 + i];
     if (!code)
       continue;
     else {
-      unsigned int key = usb_kbd_keycode[code];
+      key = usb_kbd_keycode[code];
       if (key)
-        input_report_key(kbd->input_dev, key, 1);
+        bitmap_set(new_keys, key, 1);
     }
   }
+
+  for_each_set_bit(key, new_keys, KEY_CNT) {
+    if (!test_bit(key, old_keys)) {
+      input_report_key(kbd->input_dev, key, 0);
+    }
+  }
+
+  for_each_set_bit(key, new_keys, KEY_CNT) {
+    if (!test_bit(key, old_keys))
+      input_report_key(kbd->input_dev, key, 1);
+  }
+
+  bitmap_copy(new_keys, old_keys, KEY_CNT);
 
   input_sync(kbd->input_dev);
 
