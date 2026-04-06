@@ -20,11 +20,10 @@
 static struct last_pressed_strafe {
   char active;
   char last;
-  unsigned char phys_ad;
+  unsigned char phys;
 };
 
 DECLARE_BITMAP(old_keys, KEY_CNT);
-DECLARE_BITMAP(new_keys, KEY_CNT);
 
 static struct usb_device_id universal_id_table[] = {
     {USB_INTERFACE_INFO(USB_CLASS_HID, 1, 1)}, {}};
@@ -59,46 +58,138 @@ struct keyboard_info {
   struct input_dev *input_dev;
   char *buffer;
   struct usb_device *usb_dev;
+  struct last_pressed_strafe ad_group;
+  struct last_pressed_strafe ws_group;
 };
 
 // Function to call when kb calls back to the driever
-static void KbCallback(struct urb *urb) {
+//
 
-  bitmap_zero(new_keys, KEY_CNT);
+static void KbCallback(struct urb *urb) {
   struct keyboard_info *kbd = urb->context;
   u8 *keys_buffer = urb->transfer_buffer;
-
-  if (urb->status) {
-    goto resubmit;
-  }
-
-  print_hex_dump(KERN_DEBUG, "kbd data: ", DUMP_PREFIX_OFFSET, 16, 1,
-                 urb->transfer_buffer, urb->actual_length, true);
-
+  DECLARE_BITMAP(new_keys, KEY_CNT);
   unsigned int key;
-  for (short i = 0; i < 6; i++) {
+  int i;
+
+  if (urb->status)
+    goto resubmit;
+
+  bitmap_zero(new_keys, KEY_CNT);
+
+  for (i = 0; i < 6; i++) {
     u8 code = keys_buffer[2 + i];
-    if (!code)
-      continue;
-    else {
+    if (code && code < 256) {
       key = usb_kbd_keycode[code];
       if (key)
-        bitmap_set(new_keys, key, 1);
+        set_bit(key, new_keys);
     }
   }
 
-  for_each_set_bit(key, new_keys, KEY_CNT) {
-    if (!test_bit(key, old_keys)) {
-      input_report_key(kbd->input_dev, key, 0);
+  unsigned int new_ad_active = 0;
+  int ad_phys = 0;
+  if (test_bit(KEY_A, new_keys))
+    ad_phys |= (1 << 0);
+  if (test_bit(KEY_D, new_keys))
+    ad_phys |= (1 << 1);
+
+  if (ad_phys != kbd->ad_group.phys) {
+    if (ad_phys & ~kbd->ad_group.phys) {
+      if (ad_phys & (1 << 0) && !(kbd->ad_group.phys & (1 << 0)))
+        new_ad_active = KEY_A;
+      else if (ad_phys & (1 << 1) && !(kbd->ad_group.phys & (1 << 1)))
+        new_ad_active = KEY_D;
+      if (!new_ad_active && (ad_phys & (1 << 0)))
+        new_ad_active = KEY_A;
+      else if (!new_ad_active && (ad_phys & (1 << 1)))
+        new_ad_active = KEY_D;
+      if (kbd->ad_group.active)
+        kbd->ad_group.last = kbd->ad_group.active;
+    } else {
+      if ((kbd->ad_group.active == KEY_A && !(ad_phys & (1 << 0))) ||
+          (kbd->ad_group.active == KEY_D && !(ad_phys & (1 << 1)))) {
+        if (kbd->ad_group.last && test_bit(kbd->ad_group.last, new_keys))
+          new_ad_active = kbd->ad_group.last;
+        else
+          new_ad_active = 0;
+      } else {
+        if (kbd->ad_group.active && test_bit(kbd->ad_group.active, new_keys))
+          new_ad_active = kbd->ad_group.active;
+        else
+          new_ad_active = 0;
+      }
     }
+  } else {
+    if (kbd->ad_group.active && test_bit(kbd->ad_group.active, new_keys))
+      new_ad_active = kbd->ad_group.active;
+    else
+      new_ad_active = 0;
   }
+  kbd->ad_group.phys = ad_phys;
+
+  unsigned int new_ws_active = 0;
+  int ws_phys = 0;
+  if (test_bit(KEY_W, new_keys))
+    ws_phys |= (1 << 0);
+  if (test_bit(KEY_S, new_keys))
+    ws_phys |= (1 << 1);
+
+  if (ws_phys != kbd->ws_group.phys) {
+    if (ws_phys & ~kbd->ws_group.phys) {
+      if (ws_phys & (1 << 0) && !(kbd->ws_group.phys & (1 << 0)))
+        new_ws_active = KEY_W;
+      else if (ws_phys & (1 << 1) && !(kbd->ws_group.phys & (1 << 1)))
+        new_ws_active = KEY_S;
+      if (!new_ws_active && (ws_phys & (1 << 0)))
+        new_ws_active = KEY_W;
+      else if (!new_ws_active && (ws_phys & (1 << 1)))
+        new_ws_active = KEY_S;
+      if (kbd->ws_group.active)
+        kbd->ws_group.last = kbd->ws_group.active;
+    } else {
+      if ((kbd->ws_group.active == KEY_W && !(ws_phys & (1 << 0))) ||
+          (kbd->ws_group.active == KEY_S && !(ws_phys & (1 << 1)))) {
+        if (kbd->ws_group.last && test_bit(kbd->ws_group.last, new_keys))
+          new_ws_active = kbd->ws_group.last;
+        else
+          new_ws_active = 0;
+      } else {
+        if (kbd->ws_group.active && test_bit(kbd->ws_group.active, new_keys))
+          new_ws_active = kbd->ws_group.active;
+        else
+          new_ws_active = 0;
+      }
+    }
+  } else {
+    if (kbd->ws_group.active && test_bit(kbd->ws_group.active, new_keys))
+      new_ws_active = kbd->ws_group.active;
+    else
+      new_ws_active = 0;
+  }
+  kbd->ws_group.phys = ws_phys;
+
+  clear_bit(KEY_A, new_keys);
+  clear_bit(KEY_D, new_keys);
+  clear_bit(KEY_W, new_keys);
+  clear_bit(KEY_S, new_keys);
+
+  if (new_ad_active)
+    set_bit(new_ad_active, new_keys);
+  if (new_ws_active)
+    set_bit(new_ws_active, new_keys);
 
   for_each_set_bit(key, new_keys, KEY_CNT) {
     if (!test_bit(key, old_keys))
       input_report_key(kbd->input_dev, key, 1);
   }
+  for_each_set_bit(key, old_keys, KEY_CNT) {
+    if (!test_bit(key, new_keys))
+      input_report_key(kbd->input_dev, key, 0);
+  }
 
-  bitmap_copy(new_keys, old_keys, KEY_CNT);
+  bitmap_copy(old_keys, new_keys, KEY_CNT);
+  kbd->ad_group.active = new_ad_active;
+  kbd->ws_group.active = new_ws_active;
 
   input_sync(kbd->input_dev);
 
