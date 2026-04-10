@@ -198,8 +198,8 @@ resubmit:
 }
 
 // Init function to setup connection with KB
-static int kb_probe_init(struct usb_interface *usb_intf,
-                         const struct usb_device_id *dev_id) {
+static int probe(struct usb_interface *usb_intf,
+                 const struct usb_device_id *dev_id) {
 
   printk(KERN_INFO "SuperKBDrive: Connecting keyboard. . .");
 
@@ -269,7 +269,7 @@ static int kb_probe_init(struct usb_interface *usb_intf,
 
   // Initialing our URB for interrupt-type keyboard raw bytes transers
   usb_fill_int_urb(kbd->urb, usb_kb, kb_pipe_id, kbd->buffer,
-                   kb_endpoint->wMaxPacketSize, KbCallback, kbd, 100);
+                   kb_endpoint->wMaxPacketSize, KbCallback, kbd, 4);
 
   if (!kbd->usb_dev) {
     printk(
@@ -296,7 +296,7 @@ static int kb_probe_init(struct usb_interface *usb_intf,
 }
 
 // Disconnecting keyboard
-static void kbd_disconnect(struct usb_interface *usb_interface) {
+static void disconnect(struct usb_interface *usb_interface) {
   struct keyboard_info *kbd_info = usb_get_intfdata(usb_interface);
 
   if (!kbd_info)
@@ -320,8 +320,8 @@ static void kbd_disconnect(struct usb_interface *usb_interface) {
 // setting up driver to be registered
 struct usb_driver kb_driver_info = {
     .name = "super_keyboard_driver",
-    .probe = kb_probe_init,
-    .disconnect = kbd_disconnect,
+    .probe = probe,
+    .disconnect = disconnect,
     .id_table = smartbuy_id_table,
 };
 
