@@ -269,8 +269,7 @@ static int kb_probe_init(struct usb_interface *usb_intf,
 
   // Initialing our URB for interrupt-type keyboard raw bytes transers
   usb_fill_int_urb(kbd->urb, usb_kb, kb_pipe_id, kbd->buffer,
-                   kb_endpoint->wMaxPacketSize, KbCallback, kbd,
-                   kb_endpoint->bInterval);
+                   kb_endpoint->wMaxPacketSize, KbCallback, kbd, 100);
 
   if (!kbd->usb_dev) {
     printk(
