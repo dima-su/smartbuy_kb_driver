@@ -53,6 +53,10 @@ static const unsigned char usb_kbd_keycode[256] = {
     42,  56,  125, 97,  54,  100, 126, 164, 166, 165, 163, 161, 115, 114, 113,
     150, 158, 159, 128, 136, 177, 178, 176, 142, 152, 173, 140};
 
+static const int modifier_map[] = {KEY_LEFTCTRL, KEY_LEFTSHIFT, KEY_LEFTALT,
+                                   KEY_LEFTMETA, KEY_RIGHTCTRL, KEY_RIGHTSHIFT,
+                                   KEY_RIGHTALT, KEY_RIGHTMETA};
+
 struct keyboard_info {
   struct urb *urb;
   struct input_dev *input_dev;
@@ -76,6 +80,11 @@ static void KbCallback(struct urb *urb) {
     goto resubmit;
 
   bitmap_zero(new_keys, KEY_CNT);
+
+  for (int i = 0; i < 8; i++) {
+    if (keys_buffer[0] & (1 << i))
+      set_bit(modifier_map[i], new_keys);
+  }
 
   for (i = 0; i < 6; i++) {
     u8 code = keys_buffer[2 + i];
